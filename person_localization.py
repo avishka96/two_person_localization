@@ -23,7 +23,7 @@ from helpers import *
 @torch.no_grad()
 def run(poseweights="yolov7-w6-pose.pt",source="football1.mp4",device='cpu',view_img=False,
         save_conf=False,line_thickness = 3,hide_labels=False, hide_conf=True, track=True, nobbox=False, keep_bg=False,
-        out_fps=20, outvid_dir='output/videos/', outjson_dir='output/jsons/', gband=2):
+        out_fps=20, outvid_dir='output/videos/', outjson_dir='output/jsons/', gband=2, min_inter_time=1):
 
     frame_count = 0  #count no of frames
     total_fps = 0  #count total fps
@@ -131,7 +131,7 @@ def run(poseweights="yolov7-w6-pose.pt",source="football1.mp4",device='cpu',view
                         for det_index, (*xyxy, idx) in enumerate(tracked_dets):
                             c = 0
                             kpts = pose[det_index, 6:]
-                            print(kpts)
+                            #print(kpts)
                             if not keep_bg:
                                 draw_bbox_kpts(wr_im, xyxy, identity=idx, kpts=kpts, names=names, colors=colors, steps=3,
                                            orig_shape=im0.shape[:2])
@@ -183,85 +183,105 @@ def run(poseweights="yolov7-w6-pose.pt",source="football1.mp4",device='cpu',view
         #plot_fps_time_comparision(time_list=time_list,fps_list=fps_list)
 
         # System code starts here
-        #print(dict_to_json)
+        inter_end_dict = {}
         for frame_key in range(1, frame_count + 1):
             num_person = len(dict_to_json[str(frame_key)])
             # person_ids = list(range(1, num_person+1))
-            person_ids = []
+            person_ids = set()
             for person in range(num_person):
-                person_ids.append(dict_to_json[str(frame_key)][person]["id"])
-            all_two_person_combs = get_person_pairs(person_ids, 2)
-            print(all_two_person_combs)
+                person_ids.add(dict_to_json[str(frame_key)][person]["id"])
+            all_two_person_combs = get_person_pairs(sorted(person_ids), 2)
+            # print(all_two_person_combs)
             for pair in all_two_person_combs:
-                p1 = pair[0]
-                p2 = pair[1]
-                for idx in range(num_person):
-                    if p1 == dict_to_json[str(frame_key)][idx]["id"]:
-                        person1_bbox = np.array(dict_to_json[str(frame_key)][idx]["bbox"])
-                        # print(person1_bbox)
-                    elif p2 == dict_to_json[str(frame_key)][idx]["id"]:
-                        person2_bbox = np.array(dict_to_json[str(frame_key)][pair[1] - 1]["bbox"])
-                if is_bbox_overlap(person1_bbox, person2_bbox):
-                    start_frame = frame_key - gband * out_fps
-                    if start_frame < 1:
-                        start_frame = 1
-                    end_frame = frame_count
-                    overlapping = True
-                    pair_video_name = outvid_dir + str(os.path.splitext(vidfile)[0]) + '_P{}P{}.avi'.format(pair[0],
-                                                                                                           pair[1])
-                    pair_outvid = cv2.VideoWriter(pair_video_name,
-                                                  cv2.VideoWriter_fourcc(*'MJPG'), out_fps,
-                                                  (frame_width, frame_height))
-                    white_bg = 255 * np.ones((frame_height, frame_width, 3), dtype=np.uint8)
-                    # print(torch.tensor(dict_to_json[str(frame_key)][pair[0]-1]["skeleton"]))
-                    plot_skeleton_kpts(white_bg, torch.tensor(dict_to_json[str(frame_key)][pair[0] - 1]["skeleton"]), 3,
-                                       orig_shape=white_bg.shape[:2])
-                    plot_skeleton_kpts(white_bg, torch.tensor(dict_to_json[str(frame_key)][pair[1] - 1]["skeleton"]), 3,
-                                       orig_shape=white_bg.shape[:2])
-                    pair_outvid.write(white_bg)
-                    for temp_frame in range(start_frame, frame_count + 1):
-                        num_person = len(dict_to_json[str(temp_frame)])
+                # print(f'pair = {pair}')
+                if (pair not in inter_end_dict.keys()) or (frame_key > int(inter_end_dict[pair])):
+                    p1 = pair[0]
+                    p2 = pair[1]
+                    if is_not_misdetection(p1, frame_key, frame_count, dict_to_json, out_fps,
+                                           min_inter_time) and is_not_misdetection(p2, frame_key, frame_count,
+                                                                                   dict_to_json, out_fps,
+                                                                                   min_inter_time):
                         for idx in range(num_person):
-                            if p1 == dict_to_json[str(temp_frame)][idx]["id"]:
-                                person1_bbox = np.array(dict_to_json[str(temp_frame)][idx]["bbox"])
+                            if p1 == int(dict_to_json[str(frame_key)][idx]["id"]):
+                                person1_bbox = np.array(dict_to_json[str(frame_key)][idx]["bbox"])
+                                p1_idx = idx
                                 # print(person1_bbox)
-                            elif p2 == dict_to_json[str(temp_frame)][idx]["id"]:
-                                person2_bbox = np.array(dict_to_json[str(temp_frame)][pair[1] - 1]["bbox"])
-                        if (not is_bbox_overlap(person1_bbox, person2_bbox) and overlapping):
-                            overlapping = False
-                            end_frame = temp_frame + gband * out_fps
-                            if end_frame > frame_count:
-                                end_frame = frame_count
-                        if temp_frame < end_frame:
-                            white_bg = 255 * np.ones((frame_height, frame_width, 3), dtype=np.uint8)
-                            plot_skeleton_kpts(white_bg,
-                                               torch.tensor(dict_to_json[str(temp_frame)][pair[0] - 1]["skeleton"]), 3,
-                                               orig_shape=white_bg.shape[:2])
-                            plot_skeleton_kpts(white_bg,
-                                               torch.tensor(dict_to_json[str(temp_frame)][pair[1] - 1]["skeleton"]), 3,
-                                               orig_shape=white_bg.shape[:2])
-                            pair_outvid.write(white_bg)
+                            elif p2 == int(dict_to_json[str(frame_key)][idx]["id"]):
+                                person2_bbox = np.array(dict_to_json[str(frame_key)][idx]["bbox"])
+                                p2_idx = idx
+                        if is_bbox_overlap(person1_bbox, person2_bbox):
+                            print(f'{p1} and {p2} intersect at frame {frame_key}')
+                            start_frame = get_start_frame(frame_key, gband, out_fps, p1, p2, dict_to_json)
+                            print(f'start frame = {start_frame}')
+                            end_frame = frame_count
+                            overlapping = True
+                            pair_video_name = outvid_dir + str(os.path.splitext(vidfile)[0]) + '_P{}P{}.avi'.format(p1,
+                                                                                                                    p2)
+                            pair_outvid = cv2.VideoWriter(pair_video_name,
+                                                          cv2.VideoWriter_fourcc(*'MJPG'), out_fps,
+                                                          (frame_width, frame_height))
+                            for temp_frame in range(start_frame, frame_count + 1):
+                                num_person = len(dict_to_json[str(temp_frame)])
+                                for idx in range(num_person):
+                                    if p1 == int(dict_to_json[str(temp_frame)][idx]["id"]):
+                                        person1_bbox = np.array(dict_to_json[str(temp_frame)][idx]["bbox"])
+                                        p1_idx = idx
+                                        # print(person1_bbox)
+                                    elif p2 == int(dict_to_json[str(temp_frame)][idx]["id"]):
+                                        person2_bbox = np.array(dict_to_json[str(temp_frame)][idx]["bbox"])
+                                        p2_idx = idx
+                                # print(is_bbox_overlap(person1_bbox, person2_bbox))
+                                if (temp_frame > frame_key) and (
+                                not is_bbox_overlap(person1_bbox, person2_bbox)) and overlapping:
+                                    print(f'Not overlapping for {p1},{p2}')
+                                    overlapping = False
+                                    end_frame = get_end_frame(temp_frame, frame_count, gband, out_fps, p1, p2,
+                                                              dict_to_json)
+                                    print(f'end frame = {end_frame}')
+                                if temp_frame <= end_frame:
+                                    white_bg = 255 * np.ones((frame_height, frame_width, 3), dtype=np.uint8)
+                                    plot_skeleton_kpts(white_bg,
+                                                       torch.tensor(dict_to_json[str(temp_frame)][p1_idx]["skeleton"]),
+                                                       3,
+                                                       orig_shape=white_bg.shape[:2])
+                                    plot_skeleton_kpts(white_bg,
+                                                       torch.tensor(dict_to_json[str(temp_frame)][p2_idx]["skeleton"]),
+                                                       3,
+                                                       orig_shape=white_bg.shape[:2])
+                                    pair_outvid.write(white_bg)
+                                    if temp_frame == frame_count:
+                                        pair_outvid.release()
+                                        inter_end_dict[pair] = end_frame
+                                else:
+                                    pair_outvid.release()
+                                    inter_end_dict[pair] = end_frame
+                                    print(inter_end_dict)
+                                    break
                         else:
-                            pair_outvid.release()
-                            break
+                            continue
+                    else:
+                        continue
+                else:
+                    continue
 
 def parse_opt():
     parser = argparse.ArgumentParser()
     parser.add_argument('--poseweights', nargs='+', type=str, default='weights/yolov7-w6-pose.pt', help='model path(s)')
-    parser.add_argument('--source', type=str, default='inference/EOE_vid1_15fps.avi', help='video/0 for webcam') #video source
+    parser.add_argument('--source', type=str, default='inference/EOE_vid1.mp4', help='video/0 for webcam') #video source
     parser.add_argument('--device', type=str, default='cpu', help='cpu/0,1,2,3(gpu)')   #device arugments
-    parser.add_argument('--view-img', action='store_true', default=False, help='display results')  #display results
+    parser.add_argument('--view-img', action='store_true', default=True, help='display results')  #display results
     parser.add_argument('--save-conf', action='store_true', help='save confidences in --save-txt labels') #save confidence in txt writing
     parser.add_argument('--line-thickness', default=3, type=int, help='bounding box thickness (pixels)') #box linethickness
-    parser.add_argument('--hide-labels', default=True, action='store_true', help='hide labels') #box hidelabel
+    parser.add_argument('--hide-labels', default=False, action='store_true', help='hide labels') #box hidelabel
     parser.add_argument('--hide-conf', default=False, action='store_true', help='hide confidences') #boxhideconf
     parser.add_argument('--track', default=True, action='store_true', help='run tracking')
-    parser.add_argument('--nobbox', default=True, action='store_true', help='hide bbox')
+    parser.add_argument('--nobbox', default=False, action='store_true', help='hide bbox')
     parser.add_argument('--keep_bg', default=False, action='store_true', help='white background')
     parser.add_argument('--out_fps', default=15, type=int, help='fps value')
     parser.add_argument('--outvid_dir', type=str, default='output/videos/', help='kpts video dir')
     parser.add_argument('--outjson_dir', type=str, default='output/jsons/', help='kpts json dir')
     parser.add_argument('--gband', default=2, type=int, help='+ or - band in seconds')
+    parser.add_argument('--min_int_time', default=1, type=int, help='min time for an interaction')
     opt = parser.parse_args()
     return opt
 
@@ -307,6 +327,7 @@ def sort_tracks(detout=np.zeros((0,4)), trkout=np.zeros((0,5)), kpts=np.zeros((0
     sorted_trks = np.empty((0,56))
     numdets = len(detout)
     numtrks = len(trkout)
+    print(detout)
     if numdets == 0:
         print('No Detections')
         return detout
@@ -331,6 +352,7 @@ def sort_tracks(detout=np.zeros((0,4)), trkout=np.zeros((0,5)), kpts=np.zeros((0
                 matched_ind.append(matched_trk_idx)
                 matched_row = np.hstack((trkout[matched_trk_idx,4], trkout[matched_trk_idx,:4], kpts[i]))
                 sorted_trks = np.vstack((sorted_trks, matched_row))
+        print(sorted_trks)
         return sorted_trks
 
 def update_dict(frame, dict, arr=np.empty((0,56))):
