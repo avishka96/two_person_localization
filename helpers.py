@@ -12,7 +12,7 @@ def get_homo_matrix(pts_src=np.empty((4,2)), pts_dst=np.empty((4,2))):
 def map_std_locs(mat, std_loc=np.empty((1,2))):
     return cv2.perspectiveTransform(std_loc, mat)
 
-def is_bbox_overlap(bbox1=np.empty((1,4)), bbox2=np.empty((1,4))):
+def is_bbox_overlap(bbox1=np.zeros(4), bbox2=np.zeros(4)):
     #if  (bbox1[0,0] >= bbox2[0,2]) or (bbox1[0,2] <= bbox2[0,0]) or (bbox1[0,3] <= bbox2[0,1]) or (bbox1[0,1] >= bbox2[0,3]):
     xA = max(bbox1[0], bbox2[0])
     yA = max(bbox1[1], bbox2[1])
@@ -32,36 +32,36 @@ def get_person_pairs(arr, r):
     return list(combinations(arr, r))
 
 def get_start_frame(frame, band, fps, person1, person2, dict):
-    is_person1, is_person2 = True, True
+    is_person1, is_person2 = False, False
     if ((frame - band*fps) >= 1):
         start = frame - band*fps
     else:
         start = 1
-    for f in reversed(range(start, frame)):
+    for f in range(start, frame):
         for i in range(len(dict[str(f)])):
-            is_person1 = is_person1 and (int(dict[str(f)][i]["id"]) == person1)
-            is_person2 = is_person2 and (int(dict[str(f)][i]["id"]) == person2)
-            if not (is_person1 and is_person2):
+            is_person1 = is_person1 or (int(dict[str(f)][i]["id"]) == person1)
+            is_person2 = is_person2 or (int(dict[str(f)][i]["id"]) == person2)
+            if (is_person1 and is_person2):
                 start = f
                 break
-        if not (is_person1 and is_person2):
+        if is_person1 and is_person2:
             break
     return start
 
 def get_end_frame(frame, tot_frames, band, fps, person1, person2, dict):
-    is_person1, is_person2 = True, True
+    is_person1, is_person2 = False, False
     if ((frame + band*fps) <= tot_frames):
         end = frame + band*fps
     else:
         end = tot_frames
-    for f in range(frame, tot_frames):
+    for f in reversed(range(frame, tot_frames+1)):
         for i in range(len(dict[str(f)])):
-            is_person1 = is_person1 and (int(dict[str(f)][i]["id"]) == person1)
-            is_person2 = is_person2 and (int(dict[str(f)][i]["id"]) == person2)
-            if not (is_person1 and is_person2):
+            is_person1 = is_person1 or (int(dict[str(f)][i]["id"]) == person1)
+            is_person2 = is_person2 or (int(dict[str(f)][i]["id"]) == person2)
+            if (is_person1 and is_person2):
                 end = f
                 break
-        if not (is_person1 and is_person2):
+        if (is_person1 and is_person2):
             break
     return end
 
