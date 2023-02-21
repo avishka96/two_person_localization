@@ -32,19 +32,19 @@ def get_person_pairs(arr, r):
     return list(combinations(arr, r))
 
 def get_start_frame(frame, band, fps, person1, person2, dict):
-    is_person1, is_person2 = False, False
+    is_person1, is_person2 = True, True
     if ((frame - band*fps) >= 1):
         start = frame - band*fps
     else:
         start = 1
-    for f in range(start, frame):
+    for f in reversed(range(start, frame)):
         for i in range(len(dict[str(f)])):
-            is_person1 = is_person1 or (int(dict[str(f)][i]["id"]) == person1)
-            is_person2 = is_person2 or (int(dict[str(f)][i]["id"]) == person2)
-            if is_person1 and is_person2:
+            is_person1 = is_person1 and (int(dict[str(f)][i]["id"]) == person1)
+            is_person2 = is_person2 and (int(dict[str(f)][i]["id"]) == person2)
+            if not (is_person1 and is_person2):
                 start = f
                 break
-        if is_person1 and is_person2:
+        if not (is_person1 and is_person2):
             break
     return start
 

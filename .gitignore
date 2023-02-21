@@ -1,5 +1,5 @@
 /weights/yolov7-w6-pose.pt
-/inference/*.avi
+*.avi
 *.mp4
 *.json
 /frames
