@@ -43,8 +43,11 @@ def run(poseweights="yolov7-w6-pose.pt",source="football1.mp4",device='cpu',view
         cap = cv2.VideoCapture(int(source))    #pass video to videocapture object
     else:
         vidfile = str(os.path.splitext(source)[0]) + f'_{str(out_fps)}fps{os.path.splitext(source)[1]}'
-        fps_cmd = "ffmpeg -i {} -c:v libx264 -crf 0 -filter:v fps={} {}".format(source, str(out_fps), vidfile)
+        #vidfile = str(os.path.splitext(source)[0]) + f'_{str(out_fps)}fps.mp4'
+        #fps_cmd = "ffmpeg -i {} -c:v libx264 -crf 0 -filter:v fps={} {}".format(source, str(out_fps), vidfile)
+        fps_cmd = "ffmpeg -i {} -c:v libx264 -s 1920x1080 -crf 0 -filter:v fps={} {}".format(source, str(out_fps), vidfile)
         os.system(fps_cmd)
+        #vidfile = source
         cap = cv2.VideoCapture(vidfile)    #pass video to videocapture object
    
     if (cap.isOpened() == False):   #check if videocapture not opened
@@ -185,7 +188,10 @@ def run(poseweights="yolov7-w6-pose.pt",source="football1.mp4",device='cpu',view
         # System code starts here
         inter_end_dict = {}
         pair_count = 1
-        os.makedirs(outvid_dir + f'{str(os.path.splitext(vidfile)[0])}/')
+        try:
+            os.makedirs(outvid_dir + f'{str(os.path.splitext(vidfile)[0])}/')
+        except FileExistsError:
+            pass
         for frame_key in range(1, frame_count + 1):
             num_person = len(dict_to_json[str(frame_key)])
             # person_ids = list(range(1, num_person+1))
@@ -203,49 +209,42 @@ def run(poseweights="yolov7-w6-pose.pt",source="football1.mp4",device='cpu',view
                                            min_inter_time) and is_not_misdetection(p2, frame_key, frame_count,
                                                                                    dict_to_json, out_fps,
                                                                                    min_inter_time):
-                        p1_idx, p2_idx = num_person, num_person
-                        for idx in range(num_person):
-                            try:
+                        p1_idx, p2_idx, person1_bbox, person2_bbox = num_person, num_person, np.zeros(4), np.zeros(4)
+                        try:
+                            for idx in range(num_person):
                                 if p1 == int(dict_to_json[str(frame_key)][idx]["id"]):
                                     person1_bbox = np.array(dict_to_json[str(frame_key)][idx]["bbox"])
                                     p1_idx = idx
                                     # print(person1_bbox)
-                            except IndexError:
-                                pass
-                            try:
-                                if p2 == int(dict_to_json[str(frame_key)][idx]["id"]):
+                                elif p2 == int(dict_to_json[str(frame_key)][idx]["id"]):
                                     person2_bbox = np.array(dict_to_json[str(frame_key)][idx]["bbox"])
                                     p2_idx = idx
-                            except IndexError:
-                                pass
+                        except IndexError:
+                            continue
                         if is_bbox_overlap(person1_bbox, person2_bbox):
                             print(f'{p1} and {p2} intersect at frame {frame_key}')
                             start_frame = get_start_frame(frame_key, gband, out_fps, p1, p2, dict_to_json)
-                            print(f'start frame = {start_frame}')
+                            print(f'frame = {frame_key}, start frame = {start_frame}')
                             end_frame = frame_count
                             overlapping = True
-                            pair_video_name = outvid_dir + f'{str(os.path.splitext(vidfile)[0])}/' + f'P{p1}P{p2}_{pair_count}.avi'
+                            pair_video_name = outvid_dir + f'{str(os.path.splitext(vidfile)[0])}/' + f'{pair_count}_P{p1}P{p2}.avi'
                             pair_count += 1
                             pair_outvid = cv2.VideoWriter(pair_video_name,
                                                           cv2.VideoWriter_fourcc(*'MJPG'), out_fps,
                                                           (frame_width, frame_height))
                             for temp_frame in range(start_frame, frame_count + 1):
                                 num_person = len(dict_to_json[str(temp_frame)])
-                                p1_idx, p2_idx = num_person, num_person
+                                p1_idx, p2_idx, person1_bbox, person2_bbox = num_person, num_person, np.zeros(
+                                    4), np.zeros(4)
                                 for idx in range(num_person):
-                                    try:
-                                        if p1 == int(dict_to_json[str(temp_frame)][idx]["id"]):
-                                            person1_bbox = np.array(dict_to_json[str(temp_frame)][idx]["bbox"])
-                                            p1_idx = idx
-                                            # print(person1_bbox)
-                                    except IndexError:
-                                        pass
-                                    try:
-                                        if p2 == int(dict_to_json[str(temp_frame)][idx]["id"]):
-                                            person2_bbox = np.array(dict_to_json[str(temp_frame)][idx]["bbox"])
-                                            p2_idx = idx
-                                    except IndexError:
-                                        pass
+                                    if p1 == int(dict_to_json[str(temp_frame)][idx]["id"]):
+                                        person1_bbox = np.array(dict_to_json[str(temp_frame)][idx]["bbox"])
+                                        p1_idx = idx
+                                        # print(person1_bbox)
+                                    if p2 == int(dict_to_json[str(temp_frame)][idx]["id"]):
+                                        person2_bbox = np.array(dict_to_json[str(temp_frame)][idx]["bbox"])
+                                        p2_idx = idx
+
                                 # print(is_bbox_overlap(person1_bbox, person2_bbox))
                                 if (temp_frame > frame_key) and (
                                 not is_bbox_overlap(person1_bbox, person2_bbox)) and overlapping:
@@ -253,24 +252,20 @@ def run(poseweights="yolov7-w6-pose.pt",source="football1.mp4",device='cpu',view
                                     overlapping = False
                                     end_frame = get_end_frame(temp_frame, frame_count, gband, out_fps, p1, p2,
                                                               dict_to_json)
-                                    print(f'end frame = {end_frame}')
+                                    print(f'temp frame = {temp_frame}, end frame = {end_frame}')
                                 if temp_frame <= end_frame:
-                                    print(f'processing frame = {temp_frame}')
+                                    # print(f'processing frame = {temp_frame}')
                                     white_bg = 255 * np.ones((frame_height, frame_width, 3), dtype=np.uint8)
-                                    try:
+                                    if p1_idx < num_person:
                                         plot_skeleton_kpts(white_bg,
                                                            torch.tensor(
                                                                dict_to_json[str(temp_frame)][p1_idx]["skeleton"]), 3,
                                                            orig_shape=white_bg.shape[:2])
-                                    except IndexError:
-                                        continue
-                                    try:
+                                    if p2_idx < num_person:
                                         plot_skeleton_kpts(white_bg,
                                                            torch.tensor(
                                                                dict_to_json[str(temp_frame)][p2_idx]["skeleton"]), 3,
                                                            orig_shape=white_bg.shape[:2])
-                                    except IndexError:
-                                        continue
                                     pair_outvid.write(white_bg)
                                     if temp_frame == frame_count:
                                         pair_outvid.release()
@@ -290,15 +285,15 @@ def run(poseweights="yolov7-w6-pose.pt",source="football1.mp4",device='cpu',view
 def parse_opt():
     parser = argparse.ArgumentParser()
     parser.add_argument('--poseweights', nargs='+', type=str, default='weights/yolov7-w6-pose.pt', help='model path(s)')
-    parser.add_argument('--source', type=str, default='inference/EOE_vid2.mp4', help='video/0 for webcam') #video source
+    parser.add_argument('--source', type=str, default='inference/UT1/seq5.avi', help='video/0 for webcam') #video source
     parser.add_argument('--device', type=str, default='cpu', help='cpu/0,1,2,3(gpu)')   #device arugments
-    parser.add_argument('--view-img', action='store_true', default=True, help='display results')  #display results
+    parser.add_argument('--view-img', action='store_true', default=False, help='display results')  #display results
     parser.add_argument('--save-conf', action='store_true', help='save confidences in --save-txt labels') #save confidence in txt writing
     parser.add_argument('--line-thickness', default=3, type=int, help='bounding box thickness (pixels)') #box linethickness
-    parser.add_argument('--hide-labels', default=False, action='store_true', help='hide labels') #box hidelabel
+    parser.add_argument('--hide-labels', default=True, action='store_true', help='hide labels') #box hidelabel
     parser.add_argument('--hide-conf', default=False, action='store_true', help='hide confidences') #boxhideconf
     parser.add_argument('--track', default=True, action='store_true', help='run tracking')
-    parser.add_argument('--nobbox', default=False, action='store_true', help='hide bbox')
+    parser.add_argument('--nobbox', default=True, action='store_true', help='hide bbox')
     parser.add_argument('--keep_bg', default=False, action='store_true', help='white background')
     parser.add_argument('--out_fps', default=15, type=int, help='fps value')
     parser.add_argument('--outvid_dir', type=str, default='output/videos/', help='kpts video dir')
